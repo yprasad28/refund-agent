@@ -1,7 +1,14 @@
 "use client";
 
 import { useChat } from "@ai-sdk/react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useCallback } from "react";
+
+declare global {
+  interface Window {
+    SpeechRecognition: typeof SpeechRecognition;
+    webkitSpeechRecognition: typeof SpeechRecognition;
+  }
+}
 
 const LOGS_STORAGE_KEY = "refund-agent-logs";
 
@@ -61,10 +68,79 @@ function extractToolLogs(messages: { role: string; parts: { type: string; [key: 
   return logs;
 }
 
+function getSpeechRecognition(): typeof SpeechRecognition | null {
+  if (typeof window === "undefined") return null;
+  if (window.SpeechRecognition) return window.SpeechRecognition;
+  if (window.webkitSpeechRecognition) return window.webkitSpeechRecognition;
+  return null;
+}
+
 export default function ChatPage() {
   const { messages, sendMessage, status } = useChat();
   const [input, setInput] = useState("");
+  const [isListening, setIsListening] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const recognitionRef = useRef<SpeechRecognition | null>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  const isGenerating = status === "streaming" || status === "submitted";
+
+  const stopListening = useCallback(() => {
+    if (recognitionRef.current) {
+      recognitionRef.current.stop();
+      recognitionRef.current = null;
+    }
+    setIsListening(false);
+  }, []);
+
+  const toggleListening = useCallback(() => {
+    if (isListening) {
+      stopListening();
+      return;
+    }
+
+    const SpeechRecognitionAPI = getSpeechRecognition();
+    if (!SpeechRecognitionAPI) return;
+
+    const recognition = new SpeechRecognitionAPI();
+    recognitionRef.current = recognition;
+
+    recognition.continuous = false;
+    recognition.interimResults = false;
+    recognition.lang = "en-US";
+
+    recognition.onstart = () => {
+      setIsListening(true);
+    };
+
+    recognition.onresult = (event: SpeechRecognitionEvent) => {
+      const transcript = event.results[0]?.[0]?.transcript?.trim();
+      if (transcript) {
+        setInput((prev) => (prev ? `${prev} ${transcript}` : transcript));
+      }
+    };
+
+    recognition.onerror = () => {
+      setIsListening(false);
+      recognitionRef.current = null;
+    };
+
+    recognition.onend = () => {
+      setIsListening(false);
+      recognitionRef.current = null;
+    };
+
+    recognition.start();
+  }, [isListening, stopListening]);
+
+  useEffect(() => {
+    return () => {
+      if (recognitionRef.current) {
+        recognitionRef.current.stop();
+        recognitionRef.current = null;
+      }
+    };
+  }, []);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -81,11 +157,10 @@ export default function ChatPage() {
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!input.trim()) return;
+    if (isListening) stopListening();
     sendMessage({ text: input });
     setInput("");
   };
-
-  const isGenerating = status === "streaming" || status === "submitted";
 
   const getTextFromParts = (parts: { type: string; text?: string }[]) => {
     return parts
@@ -93,6 +168,8 @@ export default function ChatPage() {
       .map((p) => p.text)
       .join("");
   };
+
+  const speechSupported = typeof window !== "undefined" && getSpeechRecognition() !== null;
 
   return (
     <div className="flex flex-col h-screen bg-gray-50">
@@ -182,25 +259,50 @@ export default function ChatPage() {
       </main>
 
       <footer className="border-t border-gray-200 bg-white px-4 py-4">
-        <form
-          onSubmit={handleSubmit}
-          className="max-w-3xl mx-auto flex gap-3"
-        >
-          <input
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            placeholder="Describe your refund request..."
-            className="flex-1 border border-gray-300 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-            disabled={isGenerating}
-          />
-          <button
-            type="submit"
-            disabled={isGenerating || !input.trim()}
-            className="bg-blue-600 text-white rounded-xl px-6 py-3 text-sm font-medium hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+        <div className="max-w-3xl mx-auto">
+          <form
+            onSubmit={handleSubmit}
+            className="flex gap-3"
           >
-            Send
-          </button>
-        </form>
+            <input
+              ref={inputRef}
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              placeholder="Describe your refund request..."
+              className="flex-1 border border-gray-300 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              disabled={isGenerating}
+            />
+            {speechSupported && (
+              <button
+                type="button"
+                onClick={toggleListening}
+                disabled={isGenerating}
+                className={`rounded-xl px-4 py-3 text-sm font-medium transition-all disabled:opacity-50 disabled:cursor-not-allowed ${
+                  isListening
+                    ? "bg-red-500 text-white animate-pulse"
+                    : "bg-gray-100 text-gray-700 hover:bg-gray-200"
+                }`}
+                title={isListening ? "Stop listening" : "Start voice input"}
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-5 h-5">
+                  <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z" />
+                  <path d="M19 10v2a7 7 0 0 1-14 0v-2" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+                  <line x1="12" y1="19" x2="12" y2="22" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+                </svg>
+              </button>
+            )}
+            <button
+              type="submit"
+              disabled={isGenerating || !input.trim()}
+              className="bg-blue-600 text-white rounded-xl px-6 py-3 text-sm font-medium hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            >
+              Send
+            </button>
+          </form>
+          {isListening && (
+            <p className="text-xs text-red-500 mt-2 ml-1">Listening...</p>
+          )}
+        </div>
       </footer>
     </div>
   );
