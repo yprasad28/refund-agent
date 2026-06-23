@@ -84,6 +84,11 @@ export default function ChatPage() {
   const inputRef = useRef<HTMLInputElement>(null);
 
   const isGenerating = status === "streaming" || status === "submitted";
+  const [speechSupported, setSpeechSupported] = useState(false);
+
+  useEffect(() => {
+    setSpeechSupported(getSpeechRecognition() !== null);
+  }, []);
 
   const stopListening = useCallback(() => {
     if (recognitionRef.current) {
@@ -168,8 +173,6 @@ export default function ChatPage() {
       .map((p) => p.text)
       .join("");
   };
-
-  const speechSupported = typeof window !== "undefined" && getSpeechRecognition() !== null;
 
   return (
     <div className="flex flex-col h-screen bg-gray-50">
