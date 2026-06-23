@@ -170,6 +170,32 @@ For deny scenarios, the agent stops at Step 2 (not eligible) and calls `deny_ref
 - Product must be **unused**
 - **Receipt** must be provided
 
+## Voice Input
+
+Built-in voice input using the browser's Web Speech API — no external API keys or packages required.
+
+### How to Use
+
+| Action | How |
+|--------|-----|
+| Start listening | Click the mic button or press **Space** (when input is not focused) |
+| Stop listening | Click mic again, press **Space**, or just stop speaking |
+| Send voice message | Speak your request, then press **Enter** |
+
+### Features
+
+- **Real-time transcription** — text appears as you speak (interim results)
+- **Browser compatible** — works in Chrome, Edge, Safari (uses `webkitSpeechRecognition` fallback)
+- **Keyboard shortcut** — press **Space** anywhere to toggle mic (input must not be focused)
+- **Auto-stop** — recognition stops automatically after speech ends
+- **Graceful fallback** — mic button hidden in unsupported browsers
+
+### Implementation
+
+- `app/page.tsx` — Web Speech API integration with `SpeechRecognition`
+- `interimResults: true` — shows partial transcripts for responsive feel
+- `continuous: false` — single utterance mode, stops after speech ends
+
 ## Demo Scenarios
 
 ### Approve Scenario (Customer C001)

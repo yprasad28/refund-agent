@@ -111,25 +111,26 @@ export default function ChatPage() {
     recognitionRef.current = recognition;
 
     recognition.continuous = false;
-    recognition.interimResults = false;
+    recognition.interimResults = true;
     recognition.lang = "en-US";
 
-    let lastProcessedIndex = 0;
+    let finalTranscript = "";
 
     recognition.onstart = () => {
       setIsListening(true);
     };
 
     recognition.onresult = (event: SpeechRecognitionEvent) => {
-      for (let i = lastProcessedIndex; i < event.results.length; i++) {
+      let interim = "";
+      for (let i = 0; i < event.results.length; i++) {
+        const transcript = event.results[i][0]?.transcript ?? "";
         if (event.results[i].isFinal) {
-          const transcript = event.results[i][0]?.transcript?.trim();
-          if (transcript) {
-            setInput((prev) => (prev ? `${prev} ${transcript}` : transcript));
-          }
-          lastProcessedIndex = i + 1;
+          finalTranscript += transcript;
+        } else {
+          interim += transcript;
         }
       }
+      setInput(finalTranscript + interim);
     };
 
     recognition.onerror = () => {
