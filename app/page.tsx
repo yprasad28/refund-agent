@@ -1,193 +1,33 @@
 "use client";
 
 import { useChat } from "@ai-sdk/react";
-import { useEffect, useRef, useState, useCallback } from "react";
+import { useEffect, useRef, useState } from "react";
+import { useSpeechRecognition } from "../hooks/useSpeechRecognition";
+import { useChatLogs } from "../hooks/useChatLogs";
 
-interface SpeechRecognitionEvent extends Event {
-  results: SpeechRecognitionResultList;
-}
-
-interface SpeechRecognitionResultList {
-  length: number;
-  item(index: number): SpeechRecognitionResult;
-  [index: number]: SpeechRecognitionResult;
-}
-
-interface SpeechRecognitionResult {
-  length: number;
-  item(index: number): SpeechRecognitionAlternative;
-  [index: number]: SpeechRecognitionAlternative;
-  isFinal: boolean;
-}
-
-interface SpeechRecognitionAlternative {
-  transcript: string;
-  confidence: number;
-}
-
-interface SpeechRecognitionInstance extends EventTarget {
-  continuous: boolean;
-  interimResults: boolean;
-  lang: string;
-  onstart: (() => void) | null;
-  onresult: ((event: SpeechRecognitionEvent) => void) | null;
-  onerror: ((event: Event) => void) | null;
-  onend: (() => void) | null;
-  start(): void;
-  stop(): void;
-}
-
-declare global {
-  interface Window {
-    SpeechRecognition: new () => SpeechRecognitionInstance;
-    webkitSpeechRecognition: new () => SpeechRecognitionInstance;
-  }
-}
-
-const LOGS_STORAGE_KEY = "refund-agent-logs";
-
-interface StoredLog {
-  id: string;
-  toolName: string;
-  input: Record<string, unknown>;
-  output: unknown;
-  timestamp: string;
-  status: "in_progress" | "completed" | "error";
-}
-
-function saveLogsToStorage(logs: StoredLog[]): void {
-  try {
-    const existing = getLogsFromStorage();
-    const existingById = new Map(existing.map((l) => [l.id, l]));
-    for (const log of logs) {
-      existingById.set(log.id, log);
-    }
-    const merged = Array.from(existingById.values()).slice(-200);
-    localStorage.setItem(LOGS_STORAGE_KEY, JSON.stringify(merged));
-  } catch {
-    // localStorage may be full or unavailable
-  }
-}
-
-function getLogsFromStorage(): StoredLog[] {
-  try {
-    const raw = localStorage.getItem(LOGS_STORAGE_KEY);
-    return raw ? JSON.parse(raw) : [];
-  } catch {
-    return [];
-  }
-}
-
-function extractToolLogs(messages: { role: string; parts: { type: string; [key: string]: unknown }[] }[]): StoredLog[] {
-  const logs: StoredLog[] = [];
-  for (const message of messages) {
-    if (message.role !== "assistant") continue;
-    for (const part of message.parts) {
-      if (typeof part.type !== "string" || !part.type.startsWith("tool-")) continue;
-      const toolName = part.type.replace("tool-", "");
-      const state = part.state as string;
-      const input = (part.input ?? {}) as Record<string, unknown>;
-      const output = part.output ?? null;
-      const toolCallId = (part.toolCallId as string) ?? "";
-      logs.push({
-        id: `client-${toolCallId}`,
-        toolName,
-        input,
-        output,
-        timestamp: new Date().toISOString(),
-        status: state === "output-available" ? "completed" : state === "output-error" ? "error" : "in_progress",
-      });
-    }
-  }
-  return logs;
-}
-
-function getSpeechRecognition(): (new () => SpeechRecognitionInstance) | null {
-  if (typeof window === "undefined") return null;
-  if (window.SpeechRecognition) return window.SpeechRecognition;
-  if (window.webkitSpeechRecognition) return window.webkitSpeechRecognition;
-  return null;
+function getTextFromParts(parts: { type: string; text?: string }[]): string {
+  return parts
+    .filter((p) => p.type === "text")
+    .map((p) => p.text)
+    .join("");
 }
 
 export default function ChatPage() {
   const { messages, sendMessage, status } = useChat();
   const [input, setInput] = useState("");
-  const [isListening, setIsListening] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
-  const recognitionRef = useRef<SpeechRecognitionInstance | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
   const isGenerating = status === "streaming" || status === "submitted";
-  const [speechSupported, setSpeechSupported] = useState(false);
+
+  const handleTranscript = (text: string) => setInput(text);
+  const { isListening, supported: speechSupported, toggleListening, stopListening } = useSpeechRecognition(handleTranscript);
+
+  useChatLogs(messages);
 
   useEffect(() => {
-    setSpeechSupported(getSpeechRecognition() !== null);
-  }, []);
-
-  const stopListening = useCallback(() => {
-    if (recognitionRef.current) {
-      recognitionRef.current.stop();
-      recognitionRef.current = null;
-    }
-    setIsListening(false);
-  }, []);
-
-  const toggleListening = useCallback(() => {
-    if (isListening) {
-      stopListening();
-      return;
-    }
-
-    const SpeechRecognitionAPI = getSpeechRecognition();
-    if (!SpeechRecognitionAPI) return;
-
-    const recognition = new SpeechRecognitionAPI();
-    recognitionRef.current = recognition;
-
-    recognition.continuous = false;
-    recognition.interimResults = true;
-    recognition.lang = "en-US";
-
-    let finalTranscript = "";
-
-    recognition.onstart = () => {
-      setIsListening(true);
-    };
-
-    recognition.onresult = (event: SpeechRecognitionEvent) => {
-      let interim = "";
-      for (let i = 0; i < event.results.length; i++) {
-        const transcript = event.results[i][0]?.transcript ?? "";
-        if (event.results[i].isFinal) {
-          finalTranscript += transcript;
-        } else {
-          interim += transcript;
-        }
-      }
-      setInput(finalTranscript + interim);
-    };
-
-    recognition.onerror = () => {
-      setIsListening(false);
-      recognitionRef.current = null;
-    };
-
-    recognition.onend = () => {
-      setIsListening(false);
-      recognitionRef.current = null;
-    };
-
-    recognition.start();
-  }, [isListening, stopListening]);
-
-  useEffect(() => {
-    return () => {
-      if (recognitionRef.current) {
-        recognitionRef.current.stop();
-        recognitionRef.current = null;
-      }
-    };
-  }, []);
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages]);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -200,31 +40,12 @@ export default function ChatPage() {
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [toggleListening]);
 
-  useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages]);
-
-  useEffect(() => {
-    if (messages.length === 0) return;
-    const logs = extractToolLogs(messages);
-    if (logs.length > 0) {
-      saveLogsToStorage(logs);
-    }
-  }, [messages]);
-
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!input.trim()) return;
     if (isListening) stopListening();
     sendMessage({ text: input });
     setInput("");
-  };
-
-  const getTextFromParts = (parts: { type: string; text?: string }[]) => {
-    return parts
-      .filter((p) => p.type === "text")
-      .map((p) => p.text)
-      .join("");
   };
 
   return (
@@ -316,10 +137,7 @@ export default function ChatPage() {
 
       <footer className="border-t border-gray-200 bg-white px-4 py-4">
         <div className="max-w-3xl mx-auto">
-          <form
-            onSubmit={handleSubmit}
-            className="flex gap-3"
-          >
+          <form onSubmit={handleSubmit} className="flex gap-3">
             <input
               ref={inputRef}
               value={input}
