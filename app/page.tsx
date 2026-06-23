@@ -17,9 +17,11 @@ interface StoredLog {
 function saveLogsToStorage(logs: StoredLog[]): void {
   try {
     const existing = getLogsFromStorage();
-    const existingIds = new Set(existing.map((l) => l.id));
-    const newLogs = logs.filter((l) => !existingIds.has(l.id));
-    const merged = [...existing, ...newLogs].slice(-200);
+    const existingById = new Map(existing.map((l) => [l.id, l]));
+    for (const log of logs) {
+      existingById.set(log.id, log);
+    }
+    const merged = Array.from(existingById.values()).slice(-200);
     localStorage.setItem(LOGS_STORAGE_KEY, JSON.stringify(merged));
   } catch {
     // localStorage may be full or unavailable
@@ -40,20 +42,19 @@ function extractToolLogs(messages: { role: string; parts: { type: string; [key: 
   for (const message of messages) {
     if (message.role !== "assistant") continue;
     for (const part of message.parts) {
-      if (part.type !== "tool-invocation") continue;
-      const invocation = part as unknown as {
-        toolName: string;
-        args: Record<string, unknown>;
-        state: string;
-        result?: unknown;
-      };
+      if (typeof part.type !== "string" || !part.type.startsWith("tool-")) continue;
+      const toolName = part.type.replace("tool-", "");
+      const state = part.state as string;
+      const input = (part.input ?? {}) as Record<string, unknown>;
+      const output = part.output ?? null;
+      const toolCallId = (part.toolCallId as string) ?? "";
       logs.push({
-        id: `client-${invocation.toolName}-${JSON.stringify(invocation.args)}-${Date.now()}`,
-        toolName: invocation.toolName,
-        input: invocation.args,
-        output: invocation.result ?? null,
+        id: `client-${toolCallId}`,
+        toolName,
+        input,
+        output,
         timestamp: new Date().toISOString(),
-        status: invocation.state === "result" ? "completed" : "in_progress",
+        status: state === "output-available" ? "completed" : state === "output-error" ? "error" : "in_progress",
       });
     }
   }
@@ -107,6 +108,8 @@ export default function ChatPage() {
           </div>
           <a
             href="/admin"
+            target="_blank"
+            rel="noopener noreferrer"
             className="text-sm text-blue-600 hover:text-blue-800 underline"
           >
             Admin Dashboard

@@ -126,6 +126,8 @@ export default function AdminPage() {
           </div>
           <a
             href="/"
+            target="_blank"
+            rel="noopener noreferrer"
             className="text-sm text-blue-600 hover:text-blue-800 underline"
           >
             Back to Chat
