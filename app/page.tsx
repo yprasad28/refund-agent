@@ -114,14 +114,21 @@ export default function ChatPage() {
     recognition.interimResults = false;
     recognition.lang = "en-US";
 
+    let lastProcessedIndex = 0;
+
     recognition.onstart = () => {
       setIsListening(true);
     };
 
     recognition.onresult = (event: SpeechRecognitionEvent) => {
-      const transcript = event.results[0]?.[0]?.transcript?.trim();
-      if (transcript) {
-        setInput((prev) => (prev ? `${prev} ${transcript}` : transcript));
+      for (let i = lastProcessedIndex; i < event.results.length; i++) {
+        if (event.results[i].isFinal) {
+          const transcript = event.results[i][0]?.transcript?.trim();
+          if (transcript) {
+            setInput((prev) => (prev ? `${prev} ${transcript}` : transcript));
+          }
+          lastProcessedIndex = i + 1;
+        }
       }
     };
 
