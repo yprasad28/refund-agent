@@ -140,7 +140,18 @@ export default function AdminPage() {
           <h2 className="text-lg font-semibold text-gray-700">
             Tool Calls ({logs.length})
           </h2>
-          <div className="flex gap-4 text-xs text-gray-500">
+          <div className="flex gap-4 items-center text-xs text-gray-500">
+            {logs.length > 0 && (
+              <button
+                onClick={() => {
+                  localStorage.removeItem(LOGS_STORAGE_KEY);
+                  setLogs([]);
+                }}
+                className="text-red-500 hover:text-red-700 font-medium underline"
+              >
+                Clear Logs
+              </button>
+            )}
             <span className="flex items-center gap-1">
               <span className="w-3 h-3 rounded-full bg-yellow-200" />
               In Progress
