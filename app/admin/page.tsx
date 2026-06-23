@@ -11,6 +11,17 @@ interface ToolCallLog {
   status: "in_progress" | "completed" | "error";
 }
 
+const LOGS_STORAGE_KEY = "refund-agent-logs";
+
+function getLogsFromStorage(): ToolCallLog[] {
+  try {
+    const raw = localStorage.getItem(LOGS_STORAGE_KEY);
+    return raw ? JSON.parse(raw) : [];
+  } catch {
+    return [];
+  }
+}
+
 function getStatusColor(status: string, toolName: string, output: unknown) {
   if (status === "in_progress") return "bg-yellow-50 border-yellow-200";
   if (status === "error") return "bg-red-50 border-red-200";
@@ -91,18 +102,13 @@ export default function AdminPage() {
   const [logs, setLogs] = useState<ToolCallLog[]>([]);
 
   useEffect(() => {
-    const fetchLogs = async () => {
-      try {
-        const res = await fetch("/api/logs");
-        const data = await res.json();
-        setLogs(data);
-      } catch {
-        // ignore
-      }
+    const fetchLogs = () => {
+      const storageLogs = getLogsFromStorage();
+      setLogs([...storageLogs].reverse());
     };
 
     fetchLogs();
-    const interval = setInterval(fetchLogs, 2000);
+    const interval = setInterval(fetchLogs, 1000);
     return () => clearInterval(interval);
   }, []);
 
@@ -115,7 +121,7 @@ export default function AdminPage() {
               Admin Dashboard
             </h1>
             <p className="text-sm text-gray-500">
-              Real-time tool call logs (polling every 2s)
+              Tool call logs (from browser storage)
             </p>
           </div>
           <a
@@ -157,7 +163,7 @@ export default function AdminPage() {
           </div>
         ) : (
           <div className="space-y-3">
-            {[...logs].reverse().map((log) => (
+            {logs.map((log) => (
               <div
                 key={log.id}
                 className={`rounded-xl border p-4 shadow-sm transition-colors ${getStatusColor(

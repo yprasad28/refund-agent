@@ -7,7 +7,8 @@ export interface ToolCallLog {
   status: "in_progress" | "completed" | "error";
 }
 
-const logs: ToolCallLog[] = [];
+const globalForLogs = globalThis as unknown as { __toolCallLogs?: ToolCallLog[] };
+const logs: ToolCallLog[] = globalForLogs.__toolCallLogs ?? (globalForLogs.__toolCallLogs = []);
 
 export function addLog(log: ToolCallLog): void {
   logs.push(log);

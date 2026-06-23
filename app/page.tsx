@@ -3,6 +3,63 @@
 import { useChat } from "@ai-sdk/react";
 import { useEffect, useRef, useState } from "react";
 
+const LOGS_STORAGE_KEY = "refund-agent-logs";
+
+interface StoredLog {
+  id: string;
+  toolName: string;
+  input: Record<string, unknown>;
+  output: unknown;
+  timestamp: string;
+  status: "in_progress" | "completed" | "error";
+}
+
+function saveLogsToStorage(logs: StoredLog[]): void {
+  try {
+    const existing = getLogsFromStorage();
+    const existingIds = new Set(existing.map((l) => l.id));
+    const newLogs = logs.filter((l) => !existingIds.has(l.id));
+    const merged = [...existing, ...newLogs].slice(-200);
+    localStorage.setItem(LOGS_STORAGE_KEY, JSON.stringify(merged));
+  } catch {
+    // localStorage may be full or unavailable
+  }
+}
+
+function getLogsFromStorage(): StoredLog[] {
+  try {
+    const raw = localStorage.getItem(LOGS_STORAGE_KEY);
+    return raw ? JSON.parse(raw) : [];
+  } catch {
+    return [];
+  }
+}
+
+function extractToolLogs(messages: { role: string; parts: { type: string; [key: string]: unknown }[] }[]): StoredLog[] {
+  const logs: StoredLog[] = [];
+  for (const message of messages) {
+    if (message.role !== "assistant") continue;
+    for (const part of message.parts) {
+      if (part.type !== "tool-invocation") continue;
+      const invocation = part as unknown as {
+        toolName: string;
+        args: Record<string, unknown>;
+        state: string;
+        result?: unknown;
+      };
+      logs.push({
+        id: `client-${invocation.toolName}-${JSON.stringify(invocation.args)}-${Date.now()}`,
+        toolName: invocation.toolName,
+        input: invocation.args,
+        output: invocation.result ?? null,
+        timestamp: new Date().toISOString(),
+        status: invocation.state === "result" ? "completed" : "in_progress",
+      });
+    }
+  }
+  return logs;
+}
+
 export default function ChatPage() {
   const { messages, sendMessage, status } = useChat();
   const [input, setInput] = useState("");
@@ -10,6 +67,14 @@ export default function ChatPage() {
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages]);
+
+  useEffect(() => {
+    if (messages.length === 0) return;
+    const logs = extractToolLogs(messages);
+    if (logs.length > 0) {
+      saveLogsToStorage(logs);
+    }
   }, [messages]);
 
   const handleSubmit = (e: React.FormEvent) => {
