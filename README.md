@@ -32,73 +32,78 @@ Open [http://localhost:3000/admin](http://localhost:3000/admin) for the admin da
 ## Architecture
 
 ```
-┌──────────────────────────────────────────────────────────────┐
-│                        CLIENT (Browser)                       │
-│                                                              │
-│  ┌─────────────────┐              ┌──────────────────────┐   │
-│  │    Chat UI       │              │   Admin Dashboard     │   │
-│  │   /page.tsx      │              │   /admin/page.tsx     │   │
-│  │                  │              │                       │   │
-│  │  useChat() hook  │              │  Reads from           │   │
-│  │  from @ai-sdk    │              │  localStorage         │   │
-│  │                  │              │  every 1 second       │   │
-│  │  useEffect()     │              │                       │   │
-│  │  extracts tool   │              │  Shows color-coded    │   │
-│  │  calls from      │              │  tool call cards:     │   │
-│  │  messages and    │              │  - Green: approved    │   │
-│  │  saves to        │              │  - Red: denied        │   │
-│  │  localStorage    │              │  - Yellow: in progress│   │
-│  └────────┬─────────┘              └──────────┬───────────┘   │
-│           │                                    │               │
-│           │        localStorage                │               │
-│           │   ┌──────────────────────┐         │               │
-│           └──▶│  Key: "refund-agent  │◀────────┘               │
-│               │        -logs"        │                         │
-│               │  Value: JSON array   │                         │
-│               │  of tool call logs   │                         │
-│               └──────────────────────┘                         │
-└──────────────────────────────────────────────────────────────┘
-           │
-           │ POST /api/chat (streaming)
-           ▼
-┌──────────────────────────────────────────────────────────────┐
-│                     SERVER (Next.js)                          │
-│                                                              │
-│  ┌──────────────────────────────────────────────────────┐    │
-│  │  /api/chat/route.ts                                  │    │
-│  │                                                      │    │
-│  │  streamText() from Vercel AI SDK                     │    │
-│  │  Model: Google Gemini 3.1-flash-lite                 │    │
-│  │  Multi-step: stopWhen: stepCountIs(10)               │    │
-│  │                                                      │    │
-│  │  System prompt defines 6-step workflow:              │    │
-│  │  1. lookup_customer                                  │    │
-│  │  2. If not found → tell user, STOP                   │    │
-│  │  3. check_refund_policy                              │    │
-│  │  4. If not eligible → tell user why, STOP            │    │
-│  │  5. approve_refund (or deny_refund)                  │    │
-│  │  6. Tell user the result                             │    │
-│  └──────────────────────┬───────────────────────────────┘    │
-│                         │                                     │
-│                         ▼                                     │
-│  ┌──────────────────────────────────────────────────────┐    │
-│  │  /lib/tools.ts                                       │    │
-│  │                                                      │    │
-│  │  4 tool definitions:                                 │    │
-│  │  ├ lookup_customer    → searches mock CRM            │    │
-│  │  ├ check_refund_policy → validates 3 refund rules    │    │
-│  │  ├ approve_refund     → marks refund approved        │    │
-│  │  └ deny_refund        → marks refund denied          │    │
-│  └──────────────────────┬───────────────────────────────┘    │
-│                         │                                     │
-│                         ▼                                     │
-│  ┌──────────────────────────────────────────────────────┐    │
-│  │  /lib/mock-crm.ts                                    │    │
-│  │                                                      │    │
-│  │  15 customer profiles (C001–C015)                    │    │
-│  │  Refund policy: 30 days, unused, receipt required    │    │
-│  └──────────────────────────────────────────────────────┘    │
-└──────────────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────────┐
+│                         CLIENT (Browser)                          │
+│                                                                  │
+│  ┌───────────────────────┐              ┌─────────────────────┐  │
+│  │      Chat UI          │              │   Admin Dashboard    │  │
+│  │     /page.tsx         │              │  /admin/page.tsx     │  │
+│  │                       │              │                      │  │
+│  │  useChat() ──────────┐│              │  Reads from          │  │
+│  │  useSpeechRecognition││              │  localStorage        │  │
+│  │  useChatLogs ────────┘│              │  every 1 second      │  │
+│  │       │                │              │                      │  │
+│  │       ▼                │              │  Color-coded cards:  │  │
+│  │  Extracts tool calls   │              │  Green: approved     │  │
+│  │  from messages and     │              │  Red: denied         │  │
+│  │  saves to localStorage │              │  Yellow: in progress │  │
+│  └───────────┬────────────┘              └─────────┬───────────┘  │
+│              │                                     │              │
+│              │          localStorage               │              │
+│              │   ┌───────────────────────┐         │              │
+│              └──▶│  Key: "refund-agent-  │◀────────┘              │
+│                  │         logs"         │                        │
+│                  │  Value: JSON array    │                        │
+│                  │  of tool call logs    │                        │
+│                  └───────────────────────┘                        │
+└──────────────────────────────────────────────────────────────────┘
+              │
+              │ POST /api/chat (streaming)
+              ▼
+┌──────────────────────────────────────────────────────────────────┐
+│                       SERVER (Next.js)                            │
+│                                                                  │
+│  ┌────────────────────────────────────────────────────────────┐  │
+│  │  /api/chat/route.ts                                        │  │
+│  │                                                            │  │
+│  │  streamText() from Vercel AI SDK                           │  │
+│  │  Model: Google Gemini 3.1-flash-lite                       │  │
+│  │  Multi-step: stopWhen: stepCountIs(10)                     │  │
+│  │                                                            │  │
+│  │  System prompt defines 6-step workflow:                    │  │
+│  │  1. lookup_customer                                        │  │
+│  │  2. If not found → tell user, STOP                         │  │
+│  │  3. check_refund_policy                                    │  │
+│  │  4. If not eligible → tell user why, STOP                  │  │
+│  │  5. approve_refund (or deny_refund)                        │  │
+│  │  6. Tell user the result                                   │  │
+│  └───────────────────────────┬────────────────────────────────┘  │
+│                              │                                   │
+│                              ▼                                   │
+│  ┌────────────────────────────────────────────────────────────┐  │
+│  │  /lib/tools.ts                                             │  │
+│  │                                                            │  │
+│  │  4 tool definitions:                                       │  │
+│  │  ├ lookup_customer    → searches mock CRM                  │  │
+│  │  ├ check_refund_policy → validates 3 refund rules          │  │
+│  │  ├ approve_refund     → marks refund approved              │  │
+│  │  └ deny_refund        → marks refund denied                │  │
+│  └───────────────────────────┬────────────────────────────────┘  │
+│                              │                                   │
+│                              ▼                                   │
+│  ┌────────────────────────────────────────────────────────────┐  │
+│  │  /lib/mock-crm.ts                                          │  │
+│  │                                                            │  │
+│  │  15 customer profiles (C001–C015)                          │  │
+│  │  Refund policy: 30 days, unused, receipt required          │  │
+│  └────────────────────────────────────────────────────────────┘  │
+│                                                                  │
+│  ┌────────────────────────────────────────────────────────────┐  │
+│  │  /api/logs/route.ts                                        │  │
+│  │                                                            │  │
+│  │  GET — returns in-memory tool call logs                    │  │
+│  └────────────────────────────────────────────────────────────┘  │
+└──────────────────────────────────────────────────────────────────┘
 ```
 
 ### Why localStorage for Logs?
@@ -111,22 +116,28 @@ On Vercel serverless, each API request runs on a separate function instance. Ser
 refund-agent/
 ├── app/
 │   ├── api/
-│   │   └── chat/route.ts       # POST - AI agent with streaming + tool calling
-│   ├── admin/page.tsx           # Admin dashboard - reads logs from localStorage
-│   ├── globals.css              # Tailwind + global styles
-│   ├── layout.tsx               # Root layout with Geist fonts
-│   └── page.tsx                 # Chat UI - extracts tool logs to localStorage
+│   │   ├── chat/route.ts           # POST - AI agent with streaming + tool calling
+│   │   └── logs/route.ts           # GET - returns in-memory tool call logs
+│   ├── admin/page.tsx              # Admin dashboard - reads logs from localStorage
+│   ├── globals.css                 # Tailwind + global styles
+│   ├── layout.tsx                  # Root layout with Geist fonts
+│   └── page.tsx                    # Chat UI - voice input, tool log extraction
+├── hooks/
+│   ├── useChatLogs.ts              # Extracts tool calls from messages → localStorage
+│   └── useSpeechRecognition.ts     # Web Speech API voice input hook
 ├── lib/
-│   ├── mock-crm.ts              # 15 customer profiles + refund policy
-│   ├── log-store.ts             # Server-side log store (globalThis for same-instance)
-│   └── tools.ts                 # 4 tool definitions for the AI agent
+│   ├── client-log-store.ts         # localStorage read/write for tool logs
+│   ├── mock-crm.ts                 # 15 customer profiles + refund policy
+│   ├── log-store.ts                # Server-side log store (globalThis for same-instance)
+│   ├── speech-recognition.ts       # SpeechRecognition types + browser detection
+│   └── tools.ts                    # 4 tool definitions for the AI agent
 ├── tests/
-│   ├── mock-crm.test.ts         # CRM data integrity tests (17)
-│   ├── tools.test.ts            # Tool execution + logging tests (18)
-│   ├── api-chat.test.ts         # Chat API route tests (5)
-│   └── api-logs.test.ts         # Logs API route tests (6)
-├── .env.local                   # API key (Google Gemini)
-├── vitest.config.ts             # Test configuration
+│   ├── mock-crm.test.ts            # CRM data integrity tests (17)
+│   ├── tools.test.ts               # Tool execution + logging tests (18)
+│   ├── api-chat.test.ts            # Chat API route tests (5)
+│   └── api-logs.test.ts            # Logs API route tests (6)
+├── .env.local                      # API key (Google Gemini)
+├── vitest.config.ts                # Test configuration
 ├── package.json
 ├── tailwind.config.ts
 └── tsconfig.json
@@ -192,9 +203,9 @@ Built-in voice input using the browser's Web Speech API — no external API keys
 
 ### Implementation
 
-- `app/page.tsx` — Web Speech API integration with `SpeechRecognition`
-- `interimResults: true` — shows partial transcripts for responsive feel
-- `continuous: false` — single utterance mode, stops after speech ends
+- `lib/speech-recognition.ts` — SpeechRecognition types + browser detection helper
+- `hooks/useSpeechRecognition.ts` — voice input hook with interim results
+- `app/page.tsx` — integrates hook, shows mic button + spacebar toggle
 
 ## Demo Scenarios
 
@@ -292,7 +303,6 @@ npm run test:watch
 
 ## Future Improvements
 
-- **Voice pipeline** — Web Speech API or ElevenLabs for voice interaction
 - **Supabase persistence** — replace in-memory log store with a real database
 - **Session isolation** — multi-user log separation
 - **Rate limiting** — protect `/api/chat` from abuse
